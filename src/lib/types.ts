@@ -21,10 +21,16 @@ export interface AutomationReport {
     | "automation-likely"
     | "automation-detected";
   score: number;
+  cdp?: {
+    detected: boolean;
+    verdict: "yes" | "no";
+    sources: string[];
+  };
   signals: ProbeSignal[];
   runtime: {
     early: TraceprintRuntimeObservation[];
     late: TraceprintRuntimeObservation[];
+    prototype?: TraceprintPrototypeObservation[];
     debuggerWorkerDelayMs: number | null;
   };
   interaction?: Record<string, unknown>;

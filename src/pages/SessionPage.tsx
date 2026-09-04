@@ -7,6 +7,7 @@ import {
   ExternalLink,
   FileJson,
   Filter,
+  Plus,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -18,11 +19,14 @@ import { Spinner } from "../components/Icons";
 import { consistencyFindings, diffObjects } from "../lib/diff";
 import { normalizePeet } from "../lib/peet";
 import {
+  createSession,
   loadSession,
   readSessionHash,
-  savePeet
+  savePeet,
+  sessionHash
 } from "../lib/session";
 import type {
+  AutomationReport,
   CaptureRecord,
   DiffEntry,
   ProbeSignal,
@@ -31,6 +35,48 @@ import type {
 } from "../lib/types";
 
 type Tab = "overview" | "diff" | "automation" | "transport" | "raw";
+
+function cdpDetected(report: AutomationReport | undefined): boolean | null {
+  if (!report) return null;
+  if (report.cdp) return report.cdp.detected;
+
+  const runtime = report.signals.find((signal) => signal.id === "runtime-serialization");
+  const evidence = runtime?.evidence as
+    | {
+        observations?: Array<{ stackAccesses?: number }>;
+        prototypeObservations?: Array<{ ownKeysAccesses?: number }>;
+      }
+    | undefined;
+  if (evidence?.observations || evidence?.prototypeObservations) {
+    return Boolean(
+      evidence.observations?.some((item) => (item.stackAccesses ?? 0) > 0) ||
+        evidence.prototypeObservations?.some((item) => (item.ownKeysAccesses ?? 0) > 0)
+    );
+  }
+  return runtime?.status === "detected" || runtime?.status === "observed";
+}
+
+function overallScore(capture: CaptureRecord): number | null {
+  if (!capture.browser) return null;
+  const report = capture.browser.automation;
+  const legacyNameOnlyPenalty =
+    !report.cdp && report.classification === "cdp-observed" && !cdpDetected(report) ? 35 : 0;
+  const automationPenalty = Math.max(0, report.score - legacyNameOnlyPenalty);
+  const consistencyPenalty = consistencyFindings(capture.browser, capture.peet).reduce(
+    (total, finding) => {
+      if (finding.id === "automation-detected" || finding.id === "runtime-observed") {
+        return total;
+      }
+      return total + (finding.level === "risk" ? 15 : finding.level === "warning" ? 6 : 0);
+    },
+    0
+  );
+  return Math.max(0, 100 - automationPenalty - consistencyPenalty);
+}
+
+function yesNo(value: boolean | null) {
+  return value === null ? "—" : value ? "Yes" : "No";
+}
 
 function formatValue(value: unknown, limit = 320) {
   if (value === undefined) return "—";
@@ -134,10 +180,8 @@ function SideCard({
     }
   }
 
-  const notable =
-    capture.browser?.automation.signals.filter(
-      (signal) => signal.status === "detected" || signal.status === "observed"
-    ).length ?? 0;
+  const cdp = cdpDetected(capture.browser?.automation);
+  const score = overallScore(capture);
 
   return (
     <article className={"side-card panel side-card-" + side}>
@@ -165,7 +209,8 @@ function SideCard({
 
         <div className="mini-metrics">
           <div><span>Browser</span><strong>{timeLabel(capture.browserCapturedAt)}</strong></div>
-          <div><span>CDP score</span><strong className={notable ? "warm" : ""}>{capture.browser ? capture.browser.automation.score : "—"}</strong></div>
+          <div><span>Overall score</span><strong className={score !== null && score < 70 ? "warm" : "cool"}>{score === null ? "—" : score + "/100"}</strong></div>
+          <div><span>CDP detected</span><strong className={cdp === null ? "" : cdp ? "warm" : "cool"}>{yesNo(cdp)}</strong></div>
           <div><span>Transport</span><strong>{capture.peet ? "Imported" : "Waiting"}</strong></div>
         </div>
 
@@ -264,8 +309,8 @@ function AutomationTable({ session }: { session: SessionPayload }) {
         {(["a", "b"] as Side[]).map((side) => (
           <div key={side} className={"automation-score score-" + side}>
             <span>Client {side.toUpperCase()}</span>
-            <strong>{reports[side]?.score ?? "—"}</strong>
-            <small>{reports[side]?.classification.replaceAll("-", " ") ?? "awaiting capture"}</small>
+            <strong className={cdpDetected(reports[side]) === null ? "" : cdpDetected(reports[side]) ? "cdp-yes" : "cdp-no"}>{yesNo(cdpDetected(reports[side]))}</strong>
+            <small>CDP Runtime / Console detected</small>
           </div>
         ))}
       </div>
@@ -305,6 +350,8 @@ export function SessionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tab, setTab] = useState<Tab>("overview");
+  const [creatingNew, setCreatingNew] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   const refresh = useCallback(async () => {
     if (!secrets) {
@@ -363,6 +410,18 @@ export function SessionPage() {
     URL.revokeObjectURL(url);
   }
 
+  async function startNewComparison() {
+    setCreatingNew(true);
+    setActionError("");
+    try {
+      const next = await createSession();
+      window.location.assign("/session/" + next.id + "#" + sessionHash(next));
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "Could not create a comparison.");
+      setCreatingNew(false);
+    }
+  }
+
   if (loading) return <main className="center-page"><Spinner /><span>Loading fingerprint laboratory…</span></main>;
   if (error || !session || !secrets) {
     return <main className="center-page error-page"><CircleAlert /><h1>Comparison unavailable</h1><p>{error}</p><a className="button button-primary" href="/">Create another session</a></main>;
@@ -381,6 +440,8 @@ export function SessionPage() {
         <div className="session-identity"><span>SESSION</span><code>{id.slice(0, 18)}…</code></div>
         <div className="nav-actions">
           <span className="expiry">Expires {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(session.expiresAt))}</span>
+          {actionError && <span className="nav-error" title={actionError}>New session failed</span>}
+          <button className="button button-primary button-small" onClick={startNewComparison} disabled={creatingNew}><Plus size={15} /> {creatingNew ? "Creating…" : "New comparison"}</button>
           <button className="button button-quiet button-small" onClick={refresh}><RefreshCw size={15} /> Refresh</button>
           <button className="button button-quiet button-small" onClick={exportReport}><Download size={15} /> Export</button>
         </div>
@@ -423,7 +484,7 @@ export function SessionPage() {
                 <Metric label="Changed" value={changed} tone="warm" />
                 <Metric label="Matching" value={same} tone="cool" />
                 <Metric label="Compared" value={entries.length} />
-                <Metric label="CDP signals" value={(session.captures.a.browser?.automation.signals.length ?? 0) + (session.captures.b.browser?.automation.signals.length ?? 0)} tone="violet" />
+                <Metric label="CDP A / B" value={yesNo(cdpDetected(session.captures.a.browser?.automation)) + " / " + yesNo(cdpDetected(session.captures.b.browser?.automation))} tone="violet" />
               </div>
               <div className="findings-grid">
                 {(["a", "b"] as Side[]).map((side) => (
@@ -453,7 +514,7 @@ export function SessionPage() {
       </section>
 
       <footer className="dashboard-footer">
-        Runtime serialization is evidence—not automatic proof. Open DevTools can trigger similar Error getter behavior.
+        CDP Yes means Runtime/Console serialization was observed. CDP No means no detectable side effect; it cannot prove that no CDP client is attached. Open DevTools can also produce a Yes result.
       </footer>
     </main>
   );

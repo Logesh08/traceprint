@@ -298,7 +298,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .link-box label, .peet-input label { display: block; color: var(--muted); font-size: 9px; font-weight: 850; letter-spacing: 0.12em; text-transform: uppercase; }
 .link-box code { display: block; margin: 7px 0 12px; overflow: hidden; color: #c8cad6; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .link-box > div { display: flex; gap: 7px; }
-.mini-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 11px 0; }
+.mini-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 11px 0; }
 .mini-metrics div { min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 11px; background: rgba(8, 11, 20, 0.38); }
 .mini-metrics span, .mini-metrics strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini-metrics span { color: var(--muted); font-size: 9px; }
@@ -401,6 +401,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .automation-score small { margin-top: 3px; color: var(--text); font-size: 10px; text-transform: capitalize; }
 .score-a strong { color: var(--blue); }
 .score-b strong { color: var(--violet); }
+.automation-score strong.cdp-yes { color: var(--danger); }
+.automation-score strong.cdp-no { color: var(--success); }
+.nav-error { color: var(--danger); font-size: 9px; }
 .signal-comparison { display: grid; gap: 9px; }
 .signal-comparison > article { overflow: hidden; border: 1px solid var(--line); border-radius: 13px; }
 .signal-comparison article > header { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 11px 13px; border-bottom: 1px solid var(--line); background: rgba(8, 11, 20, 0.5); }
@@ -452,7 +455,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .pair-state span { flex: 1; text-align: center; }
   .side-card-head { align-items: start; }
   .state-badge { max-width: 115px; text-align: center; }
-  .mini-metrics { grid-template-columns: 1fr 1fr 1fr; }
+  .mini-metrics { grid-template-columns: 1fr 1fr; }
   .report-body { padding: 13px; }
   .diff-controls { align-items: stretch; flex-wrap: wrap; }
   .search-box { flex: 1 1 100%; }

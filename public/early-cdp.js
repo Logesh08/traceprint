@@ -3,14 +3,16 @@
 
   var startedAt = performance.now();
   var observations = [];
+  var prototypeObservations = [];
   var early = {
-    version: 1,
+    version: 2,
     startedAt: startedAt,
     createdAt: new Date().toISOString(),
     webdriver: navigator.webdriver === true,
     headlessUserAgent: /HeadlessChrome/i.test(navigator.userAgent),
     globals: [],
-    runtime: observations
+    runtime: observations,
+    prototypeRuntime: prototypeObservations
   };
 
   var markers = [
@@ -79,6 +81,40 @@
     }, 80);
   }
 
+  function emitPrototypeObservation(label) {
+    var observation = {
+      label: label,
+      emittedAtMs: Number((performance.now() - startedAt).toFixed(3)),
+      ownKeysAccesses: 0,
+      firstAccessAtMs: null,
+      settledAtMs: null
+    };
+
+    try {
+      var trap = new Proxy({}, {
+        ownKeys: function () {
+          observation.ownKeysAccesses += 1;
+          if (observation.firstAccessAtMs === null) {
+            observation.firstAccessAtMs = Number(
+              (performance.now() - startedAt).toFixed(3)
+            );
+          }
+          return [];
+        }
+      });
+      var value = Object.create(trap);
+      prototypeObservations.push(observation);
+      console.groupEnd(value);
+    } catch (probeError) {
+      observation.error = probeError instanceof Error ? probeError.message : String(probeError);
+      prototypeObservations.push(observation);
+    }
+
+    setTimeout(function () {
+      observation.settledAtMs = Number((performance.now() - startedAt).toFixed(3));
+    }, 80);
+  }
+
   try {
     Object.defineProperty(window, "__TRACEPRINT_EARLY__", {
       configurable: false,
@@ -91,6 +127,7 @@
   }
 
   emitRuntimeObservation("head-sync");
+  emitPrototypeObservation("head-prototype");
   queueMicrotask(function () {
     emitRuntimeObservation("head-microtask");
   });

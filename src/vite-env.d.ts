@@ -10,6 +10,15 @@ interface TraceprintRuntimeObservation {
   error?: string;
 }
 
+interface TraceprintPrototypeObservation {
+  label: string;
+  emittedAtMs: number;
+  ownKeysAccesses: number;
+  firstAccessAtMs: number | null;
+  settledAtMs: number | null;
+  error?: string;
+}
+
 interface TraceprintEarlyResult {
   version: number;
   startedAt: number;
@@ -19,6 +28,7 @@ interface TraceprintEarlyResult {
   globals: string[];
   globalsError?: string;
   runtime: TraceprintRuntimeObservation[];
+  prototypeRuntime?: TraceprintPrototypeObservation[];
 }
 
 interface Window {

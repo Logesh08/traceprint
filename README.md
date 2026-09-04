@@ -6,7 +6,8 @@ Traceprint is a cross-layer A/B fingerprint comparison laboratory. It creates tw
 
 - Anonymous 24-hour sessions with independent Client A and Client B capture links
 - Owner and capture tokens kept in URL fragments so they are not sent during navigation
-- Early synchronous CDP probe that runs before React
+- Early synchronous CDP probes that run before React
+- Boolean Runtime/Console detection using Error stack serialization plus a post-patch prototype-chain fallback
 - Controlled Error stack/name serialization observations
 - A DevTools timing discriminator kept separate from stronger WebDriver evidence
 - WebDriver, ChromeDriver, Playwright and other known automation markers
@@ -16,7 +17,9 @@ Traceprint is a cross-layer A/B fingerprint comparison laboratory. It creates tw
 - Imported Peet TLS, JA3, JA4 and HTTP/2 evidence
 - Field-level A/B diff, automation comparison, consistency findings and JSON export
 
-Traceprint treats each signal as evidence. Error serialization can be caused by open DevTools, while automation clients can avoid it by not enabling the relevant CDP domains.
+Traceprint reports CDP Runtime/Console detection as a boolean observation, separate from its overall score. Error serialization can be caused by open DevTools, while automation clients can avoid it by not enabling the relevant CDP domains. `Error.name` getter activity is retained as diagnostics but is not treated as CDP detection by itself.
+
+The overall score starts at 100 and deducts implemented automation-risk and cross-layer consistency penalties. It is not a CDP score.
 
 ## Stack
 

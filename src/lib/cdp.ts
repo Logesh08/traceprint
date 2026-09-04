@@ -58,6 +58,72 @@ function runtimeObservation(label: string): Promise<TraceprintRuntimeObservation
   });
 }
 
+function prototypeSerializationObservation(
+  label: string
+): Promise<TraceprintPrototypeObservation> {
+  const startedAt = performance.now();
+  const observation: TraceprintPrototypeObservation = {
+    label,
+    emittedAtMs: 0,
+    ownKeysAccesses: 0,
+    firstAccessAtMs: null,
+    settledAtMs: null
+  };
+
+  try {
+    const trap = new Proxy(
+      {},
+      {
+        ownKeys() {
+          observation.ownKeysAccesses += 1;
+          if (observation.firstAccessAtMs === null) {
+            observation.firstAccessAtMs = Number(
+              (performance.now() - startedAt).toFixed(3)
+            );
+          }
+          return [];
+        }
+      }
+    );
+    const value = Object.create(trap) as Record<string, never>;
+    Reflect.apply(console.groupEnd, console, [value]);
+  } catch (caught) {
+    observation.error = caught instanceof Error ? caught.message : String(caught);
+  }
+
+  return new Promise((resolve) => {
+    window.setTimeout(() => {
+      observation.settledAtMs = Number((performance.now() - startedAt).toFixed(3));
+      resolve(observation);
+    }, 90);
+  });
+}
+
+export function detectCdpRuntime(
+  observations: Array<Pick<TraceprintRuntimeObservation, "stackAccesses" | "nameAccesses">>,
+  prototypeObservations: Array<Pick<TraceprintPrototypeObservation, "ownKeysAccesses">> = []
+) {
+  const stackAccesses = observations.reduce(
+    (total, item) => total + item.stackAccesses,
+    0
+  );
+  const nameAccesses = observations.reduce(
+    (total, item) => total + item.nameAccesses,
+    0
+  );
+  const prototypeOwnKeysAccesses = prototypeObservations.reduce(
+    (total, item) => total + item.ownKeysAccesses,
+    0
+  );
+
+  return {
+    detected: stackAccesses > 0 || prototypeOwnKeysAccesses > 0,
+    stackAccesses,
+    nameAccesses,
+    prototypeOwnKeysAccesses
+  };
+}
+
 async function debuggerWorkerDelay(): Promise<number | null> {
   if (typeof Worker === "undefined") return null;
   const source =
@@ -217,41 +283,46 @@ export async function collectAutomationReport(): Promise<AutomationReport> {
     )
   );
 
-  const late = [
-    await runtimeObservation("app-start"),
-    await runtimeObservation("app-repeat")
+  const late = [await runtimeObservation("app-start"), await runtimeObservation("app-repeat")];
+  const latePrototype = [
+    await prototypeSerializationObservation("app-prototype")
   ];
   const earlyRuntime = early?.runtime ? early.runtime.map((item) => ({ ...item })) : [];
+  const earlyPrototype = early?.prototypeRuntime
+    ? early.prototypeRuntime.map((item) => ({ ...item }))
+    : [];
   const allRuntime = earlyRuntime.concat(late);
-  const runtimeAccesses = allRuntime.reduce(
-    (total, item) => total + item.stackAccesses + item.nameAccesses,
-    0
-  );
-  const delay = runtimeAccesses > 0 ? await debuggerWorkerDelay() : null;
+  const allPrototype = earlyPrototype.concat(latePrototype);
+  const runtimeEvidence = detectCdpRuntime(allRuntime, allPrototype);
+  const delay = runtimeEvidence.detected ? await debuggerWorkerDelay() : null;
   const devtoolsTiming = delay !== null && delay >= 180;
 
   signals.push({
     id: "runtime-serialization",
     label: "CDP Runtime serialization",
     group: "runtime",
-    status: runtimeAccesses > 0 ? "observed" : "clear",
-    confidence: runtimeAccesses > 0 ? (devtoolsTiming ? "low" : "medium") : "low",
+    status: runtimeEvidence.detected ? "detected" : "clear",
+    confidence: runtimeEvidence.detected ? "high" : "medium",
     summary:
-      runtimeAccesses > 0
-        ? "Console emission caused Error stack/name getters to execute, consistent with Runtime or Console domain serialization."
-        : "No Error getter serialization was observed during the controlled console probes.",
+      runtimeEvidence.detected
+        ? "CDP Runtime/Console serialization was observed during a controlled console probe."
+        : "No detectable CDP Runtime/Console serialization side effect was observed.",
     evidence: {
-      totalGetterAccesses: runtimeAccesses,
+      detected: runtimeEvidence.detected,
+      stackAccesses: runtimeEvidence.stackAccesses,
+      nameAccesses: runtimeEvidence.nameAccesses,
+      prototypeOwnKeysAccesses: runtimeEvidence.prototypeOwnKeysAccesses,
       observations: allRuntime,
+      prototypeObservations: allPrototype,
       debuggerWorkerDelayMs: delay
     },
     caveat:
-      runtimeAccesses > 0
-        ? "Open DevTools can produce the same side effect; this signal alone does not prove automation."
-        : "A controller can avoid this signal by not enabling or subscribing to the relevant CDP domains."
+      runtimeEvidence.detected
+        ? "This means a detectable Runtime/Console domain is active. Open DevTools can cause the same result, so it does not prove automation."
+        : "No signal is not proof that CDP is absent: a controller can avoid Runtime.enable/Console.enable, and Chromium can patch serialization paths."
   });
 
-  if (runtimeAccesses > 0) {
+  if (runtimeEvidence.detected) {
     signals.push({
       id: "devtools-discriminator",
       label: "DevTools timing discriminator",
@@ -272,22 +343,33 @@ export async function collectAutomationReport(): Promise<AutomationReport> {
   if (frameworkGlobals.length) score += 90;
   if (headlessUa) score += 80;
   if (webdriverPatched) score += 20;
-  if (runtimeAccesses > 0) score += devtoolsTiming ? 10 : 35;
+  if (runtimeEvidence.detected) score += devtoolsTiming ? 10 : 35;
   score = Math.min(score, 100);
 
   let classification: AutomationReport["classification"] = "no-obvious-automation";
   if (score >= 90) classification = "automation-detected";
   else if (score >= 55) classification = "automation-likely";
-  else if (runtimeAccesses > 0 && devtoolsTiming) classification = "devtools-likely";
-  else if (runtimeAccesses > 0) classification = "cdp-observed";
+  else if (runtimeEvidence.detected && devtoolsTiming) classification = "devtools-likely";
+  else if (runtimeEvidence.detected) classification = "cdp-observed";
 
   return {
     classification,
     score,
+    cdp: {
+      detected: runtimeEvidence.detected,
+      verdict: runtimeEvidence.detected ? "yes" : "no",
+      sources: [
+        ...(runtimeEvidence.stackAccesses > 0 ? ["error-stack-serialization"] : []),
+        ...(runtimeEvidence.prototypeOwnKeysAccesses > 0
+          ? ["prototype-ownkeys-serialization"]
+          : [])
+      ]
+    },
     signals,
     runtime: {
       early: earlyRuntime,
       late,
+      prototype: allPrototype,
       debuggerWorkerDelayMs: delay
     }
   };
