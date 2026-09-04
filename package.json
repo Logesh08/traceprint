@@ -1,0 +1,32 @@
+{
+  "name": "traceprint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "pages:dev": "npm run build && wrangler pages dev dist --d1 DB --live-reload",
+    "build:functions": "WRANGLER_SEND_METRICS=false wrangler pages functions build functions --outdir .wrangler/functions-build --project-directory . --compatibility-date 2026-09-04",
+    "test": "vitest run",
+    "check": "npm run test && npm run build && npm run build:functions"
+  },
+  "dependencies": {
+    "lucide-react": "^0.542.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.8.2",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260904.1",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "typescript": "~5.8.3",
+    "vite": "^7.1.4",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.129.0"
+  }
+}
