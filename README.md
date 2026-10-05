@@ -6,6 +6,10 @@ It creates two capability-protected capture links, records browser-visible and a
 
 The goal is simple: instead of manually comparing several fingerprinting tools and trying to remember what changed between two clients, Traceprint gives both clients the same experiment and produces a structured side-by-side comparison.
 
+## Live Demo
+
+**[Try Traceprint](https://traceprint.pages.dev/)**
+
 ## Why this exists
 
 When debugging crawling or anti-bot failures, the difficult question is often not *whether* two clients differ, but **where the difference comes from**.
